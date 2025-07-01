@@ -72,6 +72,7 @@
  */
 #define SIGNAL_NO_CHANGE   -128
 #define SIGNAL_SET_INITIAL 126
+#define SIGNAL_STOP_SEND   127
 
 enum timestamp_type {
 	TS_SOFTWARE,

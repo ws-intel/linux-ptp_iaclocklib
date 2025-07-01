@@ -1397,6 +1397,27 @@ void port_show_transition(struct port *p, enum port_state next,
 	}
 }
 
+int port_set_gptp_capable_rx_tmo(struct port *p)
+{
+	if (p->transportSpecific != TS_IEEE_8021AS) {
+		return 0;
+	}
+
+	return set_tmo_log(p->fda.fd[FD_GPTP_CAPABLE_RX_TIMER],
+		p->gPtpCapableReceiptTimeout,
+		p->logGptpCapableMessageInterval);
+}
+
+int port_set_gptp_capable_tx_tmo(struct port *p)
+{
+	if (p->transportSpecific != TS_IEEE_8021AS) {
+		return 0;
+	}
+
+	return set_tmo_log(p->fda.fd[FD_GPTP_CAPABLE_TX_TIMER], 1,
+		p->logGptpCapableMessageInterval);
+}
+
 static void port_slave_priority_warning(struct port *p)
 {
 	const char *n = p->log_name;
@@ -2094,6 +2115,8 @@ int port_initialize(struct port *p)
 	p->delay_request_variability = config_get_double(cfg, p->name, "delay_request_variability");
 	p->delay_response_timeout  = config_get_int(cfg, p->name, "delay_response_timeout");
 	p->iface_rate_tlv 	   = config_get_int(cfg, p->name, "interface_rate_tlv");
+	p->gPtpCapableReceiptTimeout = config_get_int(cfg, p->name, "gPtpCapableReceiptTimeout");
+	p->logGptpCapableMessageInterval = config_get_int(cfg, p->name, "logGptpCapableMessageInterval");
 
 	if (config_get_int(cfg, p->name, "asCapable") == AS_CAPABLE_TRUE) {
 		p->asCapable = ALWAYS_CAPABLE;
@@ -2136,6 +2159,12 @@ int port_initialize(struct port *p)
 
 	if (port_delay_mechanism(p) == DM_COMMON_P2P && port_cmlds_initialize(p)) {
 		goto no_tmo;
+	}
+
+	if (!port_is_uds(p)) {
+		if (port_set_gptp_capable_tx_tmo(p)) {
+			goto no_tmo;
+		}
 	}
 
 	/* No need to open rtnl socket on UDS port. */
@@ -3209,6 +3238,17 @@ static enum fsm_event bc_event(struct port *p, int fd_index)
 			return EV_FAULT_DETECTED;
 		else
 			return EV_NONE;
+
+	case FD_GPTP_CAPABLE_TX_TIMER:
+		pr_debug("%s: gPTP Capable tx timeout", p->log_name);
+		port_set_gptp_capable_tx_tmo(p);
+		return port_tx_gptp_capable(p, p->logGptpCapableMessageInterval);
+
+	case FD_GPTP_CAPABLE_RX_TIMER:
+		pr_info("%s: gPTP Capable rx timeout", p->log_name);
+		port_clr_tmo(p->fda.fd[FD_GPTP_CAPABLE_RX_TIMER]);
+		p->neighborGptpCapable = FALSE;
+		return EV_NONE;
 	}
 
 	msg = msg_allocate();

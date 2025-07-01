@@ -152,6 +152,9 @@ struct port {
 	Integer64	    portAsymmetry;
 	struct PortStats    stats;
 	struct PortServiceStats    service_stats;
+	Integer8        logGptpCapableMessageInterval;
+	Integer8        gPtpCapableReceiptTimeout;
+	bool		    neighborGptpCapable;
 	/* foreignMasterDS */
 	LIST_HEAD(fm, foreign_clock) foreign_masters;
 	/* TC book keeping */
@@ -201,6 +204,8 @@ int port_set_announce_tmo(struct port *p);
 int port_set_delay_tmo(struct port *p);
 int port_set_qualification_tmo(struct port *p);
 int port_set_sync_rx_tmo(struct port *p);
+int port_set_gptp_capable_tx_tmo(struct port *p);
+int port_set_gptp_capable_rx_tmo(struct port *p);
 void port_show_transition(struct port *p, enum port_state next,
 			  enum fsm_event event);
 struct ptp_message *port_signaling_uc_construct(struct port *p,
@@ -211,6 +216,7 @@ int port_tx_interval_request(struct port *p,
 			     Integer8 announceInterval,
 			     Integer8 timeSyncInterval,
 			     Integer8 linkDelayInterval);
+int port_tx_gptp_capable(struct port *p, Integer8 msgInterval);
 int port_tx_sync(struct port *p, struct address *dst, uint16_t sequence_id);
 int process_announce(struct port *p, struct ptp_message *m);
 void process_delay_resp(struct port *p, struct ptp_message *m);

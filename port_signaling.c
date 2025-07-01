@@ -127,12 +127,29 @@ static int process_interface_rate(struct port *p,
        return 0;
 }
 
+static int process_gptp_capable_message(struct port *p,
+					struct gptp_capable_tlv *r)
+{
+	if (p->transportSpecific != TS_IEEE_8021AS) {
+        return 0;
+	}
+	/* clear gPTP Capable Rx TMO */
+	port_clr_tmo(p->fda.fd[FD_GPTP_CAPABLE_RX_TIMER]);
+
+	p->neighborGptpCapable = TRUE;
+	pr_debug("%s: Received gptp_capable signaling message", p->log_name);
+
+	/* start gPTP Capable timer for next expected gPTP-Capable signaling msg */
+	return port_set_gptp_capable_rx_tmo(p);
+}
+
 int process_signaling(struct port *p, struct ptp_message *m)
 {
 	struct tlv_extra *extra;
 	struct organization_tlv *org;
 	struct msg_interval_req_tlv *r;
 	struct msg_interface_rate_tlv *rate;
+	struct gptp_capable_tlv *gc;
 	int err = 0, result;
 
 	switch (p->state) {
@@ -198,6 +215,14 @@ int process_signaling(struct port *p, struct ptp_message *m)
 				err = process_interface_rate(p, rate);
 			}
 			break;
+		case TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE:
+			gc = (struct gptp_capable_tlv *)extra->tlv;
+
+			if (0 == memcmp(gc->id, ieee8021_id, sizeof(ieee8021_id)) &&
+			    gc->subtype[0] == 0 && gc->subtype[1] == 0 && gc->subtype[2] == 4) {
+				err = process_gptp_capable_message(p, gc);
+			}
+			break;
 		}
 	}
 	return err;
@@ -241,6 +266,50 @@ int port_tx_interval_request(struct port *p,
 	if (err) {
 		pr_err("%s: send signaling failed", p->log_name);
 	}
+out:
+	msg_put(msg);
+	return err;
+}
+
+int port_tx_gptp_capable(struct port *p, Integer8 msgInterval)
+{
+	struct gptp_capable_tlv *gc;
+	struct PortIdentity tpid;
+	struct ptp_message *msg;
+	struct tlv_extra *extra;
+	int err;
+
+	if (p->transportSpecific != TS_IEEE_8021AS) {
+        return 0;
+	}
+	if (msgInterval == SIGNAL_STOP_SEND) {
+		return 0;
+	}
+
+	memset(&tpid, 0xff, sizeof(tpid));
+	msg = port_signaling_construct(p, &tpid);
+	if (!msg) {
+		return -1;
+	}
+	extra = msg_tlv_append(msg, sizeof(*gc));
+	if (!extra) {
+		err = -1;
+		goto out;
+	}
+	gc = (struct gptp_capable_tlv *) extra->tlv;
+	gc->type = TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE;
+	gc->length = sizeof(*gc) - sizeof(gc->type) - sizeof(gc->length);
+	memcpy(gc->id, ieee8021_id, sizeof(ieee8021_id));
+	gc->subtype[2] = 4;
+	gc->gPTPCapableMsgInterval = msgInterval;
+	gc->flags = 0;
+
+	err = port_prepare_and_send(p, msg, TRANS_GENERAL);
+	if (err) {
+		pr_err("%s: send gptp_capable signaling failed", p->log_name);
+	}
+	pr_debug("%s: send gptp_capable signaling message", p->log_name);
+
 out:
 	msg_put(msg);
 	return err;

@@ -731,6 +731,13 @@ This is only for use with 802.1AS clocks and has no effect on 1588 clocks.
 The default is 1 (enabled).
 
 .TP
+.B gPtpCapableReceiptTimeout
+The number of gPTP-capable message intervals to wait without receiving from its
+neighbor a Signaling message containing a gPTP-capable TLV, before determining
+that its neighbor is no longer invoking gPTP.
+The default is 9.
+
+.TP
 .B ignore_source_id
 This will disable source port identity checking for Sync and Follow_Up
 messages. This is useful when the announce messages are disabled in the server
@@ -784,6 +791,12 @@ Relevant only with software time stamping. The default is 1 (enabled).
 .B logging_level
 The maximum logging level of messages which should be printed.
 The default is 6 (LOG_INFO).
+
+.TP
+.B logGptpCapableMessageInterval
+The time interval desired by the PTP Port that sends this TLV, between successive
+Signaling messages that contain the gPTP-capable TLV. This option is specified as
+a power of two in seconds, and the default value is 0 (1 second).
 
 .TP
 .B manufacturerIdentity
