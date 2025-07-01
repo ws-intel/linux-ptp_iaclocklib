@@ -705,16 +705,22 @@ int port_capable(struct port *p)
 {
 	if (!port_is_ieee8021as(p)) {
 		/* Normal 1588 ports are always capable. */
+		if (p->asCapable != ALWAYS_CAPABLE) {
+			p->asCapable = ALWAYS_CAPABLE;
+			pr_debug("%s: setting asCapable = ALWAYS_CAPABLE "
+				"(non-802.1AS port)", p->log_name);
+		}
 		goto capable;
 	}
 
 	if (p->delayMechanism == DM_COMMON_P2P) {
-		/* asCapable is calculated by the CMLDS. */
-		return p->asCapable != NOT_CAPABLE ? 1 : 0;
+		if (p->asCapableAcrossDomains != NOT_CAPABLE)
+			goto capable;
+		goto not_capable;
 	}
 
 	if (tmv_to_nanoseconds(p->peer_delay) >	p->neighborPropDelayThresh) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: peer_delay (%" PRId64 ") > neighborPropDelayThresh "
 				"(%" PRId32 "), resetting asCapable", p->log_name,
 				tmv_to_nanoseconds(p->peer_delay),
@@ -723,7 +729,7 @@ int port_capable(struct port *p)
 	}
 
 	if (tmv_to_nanoseconds(p->peer_delay) <	p->min_neighbor_prop_delay) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: peer_delay (%" PRId64 ") < min_neighbor_prop_delay "
 				"(%" PRId32 "), resetting asCapable", p->log_name,
 				tmv_to_nanoseconds(p->peer_delay),
@@ -732,44 +738,57 @@ int port_capable(struct port *p)
 	}
 
 	if (p->pdr_missing > p->allowedLostResponses) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: missed %d peer delay resp, "
 				"resetting asCapable", p->log_name, p->pdr_missing);
 		goto not_capable;
 	}
 
 	if (p->multiple_seq_pdr_count > p->allowedLostResponses) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: received %d multiple sequential peer delay resp, "
 				"resetting asCapable", p->log_name, p->multiple_seq_pdr_count);
 		goto not_capable;
 	}
 
 	if (!p->peer_portid_valid && p->multiple_pdr_detected == 0) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: invalid peer port id, "
 				"resetting asCapable", p->log_name);
 		goto not_capable;
 	}
 
 	if (!p->nrate.ratio_valid) {
-		if (p->asCapable)
+		if (p->asCapableAcrossDomains)
 			pr_debug("%s: invalid nrate, "
 				"resetting asCapable", p->log_name);
 		goto not_capable;
 	}
 
 capable:
-	if (p->asCapable == NOT_CAPABLE) {
+	if (p->asCapableAcrossDomains == NOT_CAPABLE) {
 		pr_debug("%s: setting asCapable", p->log_name);
-		p->asCapable = AS_CAPABLE;
+		p->asCapableAcrossDomains = AS_CAPABLE;
 		port_notify_event(p, NOTIFY_CMLDS);
 	}
-	return 1;
+
+       if (p->asCapable == ALWAYS_CAPABLE) {
+               return 1;
+       }
+
+       if (p->neighborGptpCapable) {
+               p->asCapable = AS_CAPABLE;
+               return 1;
+       } else {
+               p->asCapable = NOT_CAPABLE;
+               return 0;
+       }
 
 not_capable:
-	if (p->asCapable)
+	if (p->asCapable || p->asCapableAcrossDomains) {
 		port_nrate_initialize(p);
+	}
+	p->asCapableAcrossDomains = NOT_CAPABLE;
 	p->asCapable = NOT_CAPABLE;
 	port_notify_event(p, NOTIFY_CMLDS);
 	return 0;
@@ -1170,7 +1189,7 @@ static int port_management_fill_response(struct port *target,
 		cmlds->meanLinkDelay = target->peerMeanPathDelay;
 		cmlds->scaledNeighborRateRatio =
 			(Integer32) (target->nrate.ratio * POW2_41 - POW2_41);
-		cmlds->as_capable = target->asCapable;
+		cmlds->as_capable = target->asCapableAcrossDomains;
 		datalen = sizeof(*cmlds);
 		break;
 	case MID_PORT_CORRECTIONS_NP:
@@ -1662,7 +1681,7 @@ static enum fsm_event port_cmlds_timeout(struct port *p)
 	}
 	p->cmlds.timer_count++;
 	if (p->cmlds.timer_count > p->allowedLostResponses) {
-		p->asCapable = NOT_CAPABLE;
+		p->asCapableAcrossDomains = NOT_CAPABLE;
 		err = port_cmlds_renew(p, now.tv_sec);
 		if (err) {
 			return EV_FAULT_DETECTED;
@@ -1715,9 +1734,8 @@ static int port_pdelay_request(struct port *p)
 	}
 
 	if (p->peer_delay_req) {
-		if (port_capable(p)) {
-			p->pdr_missing++;
-		}
+		p->pdr_missing++;
+		port_capable(p);
 		msg_put(p->peer_delay_req);
 	}
 	p->peer_delay_req = msg;
@@ -2122,6 +2140,7 @@ int port_initialize(struct port *p)
 		p->asCapable = ALWAYS_CAPABLE;
 	} else {
 		p->asCapable = NOT_CAPABLE;
+		p->asCapableAcrossDomains = NOT_CAPABLE;
 	}
 
 	p->inhibit_delay_req = config_get_int(cfg, p->name, "inhibit_delay_req");
@@ -2342,7 +2361,7 @@ static int process_cmlds(struct port *p)
 		p->peer_delay = nanoseconds_to_tmv(cmlds->meanLinkDelay >> 16);
 		p->peerMeanPathDelay = cmlds->meanLinkDelay;
 		p->nrate.ratio = 1.0 + (double) cmlds->scaledNeighborRateRatio / POW2_41;
-		p->asCapable = cmlds->as_capable;
+		p->asCapableAcrossDomains = cmlds->as_capable;
 		p->cmlds.timer_count = 0;
 		if (p->state == PS_UNCALIBRATED || p->state == PS_SLAVE) {
 			const tmv_t tx = tmv_zero();
@@ -2740,16 +2759,17 @@ int process_pdelay_resp(struct port *p, struct ptp_message *m)
 		return 0;
 	}
 	if (p->peer_delay_resp) {
-                if (!p->multiple_pdr_detected) {
-                        pr_err("%s: multiple peer responses", p->log_name);
-                        p->multiple_pdr_detected = 1;
-                        p->multiple_seq_pdr_count++;
-                }
-                if (p->multiple_seq_pdr_count > p->allowedLostResponses) {
-                        p->last_fault_type = FT_BAD_PEER_NETWORK;
-                        return -1;
-                }
-        }
+		if (!p->multiple_pdr_detected) {
+			pr_err("%s: multiple peer responses", p->log_name);
+			p->multiple_pdr_detected = 1;
+			p->multiple_seq_pdr_count++;
+		}
+		if (p->multiple_seq_pdr_count > p->allowedLostResponses) {
+			port_capable(p);
+			p->last_fault_type = FT_BAD_PEER_NETWORK;
+			return -1;
+		}
+	}
 
 	if (!p->peer_delay_req) {
 		pr_err("%s: rogue peer delay response", p->log_name);

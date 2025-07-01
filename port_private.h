@@ -110,6 +110,7 @@ struct port {
 	enum port_state     state; /*portState*/
 	Integer64           asymmetry;
 	enum as_capable     asCapable;
+	bool		    	asCapableAcrossDomains;
 	Integer8            logMinDelayReqInterval;
 	TimeInterval        peerMeanPathDelay;
 	Integer8            initialLogAnnounceInterval;
