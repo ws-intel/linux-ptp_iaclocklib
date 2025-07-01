@@ -137,6 +137,20 @@ static void address_to_portaddress(struct address *addr,
 	paddr->addressLength = len;
 }
 
+static bool as2011_partner(struct port *p, struct ptp_message *msg) {
+    return clock_domain_number(p->clock) == 0x0 &&
+			msg_transport_specific(msg) == TS_IEEE_8021AS &&
+           (msg_type(msg) == PDELAY_REQ || msg_type(msg) == PDELAY_RESP);
+}
+
+void update_as2011neighbor_gptp_capable(struct port *p, struct ptp_message *m) {
+    if (p->transportSpecific == TS_IEEE_8021AS && as2011_partner(p, m)) {
+		pr_debug("%s: setting neighborGptpCapable for as2011 neighbor",
+				p->log_name);
+        p->neighborGptpCapable = true;
+    }
+}
+
 static int msg_current(struct ptp_message *m, struct timespec now)
 {
 	int64_t t1, t2, tmo;
@@ -2557,6 +2571,8 @@ int process_pdelay_req(struct port *p, struct ptp_message *m)
 		return -1;
 	}
 
+	update_as2011neighbor_gptp_capable(p, m);
+
 	if (p->delayMechanism == DM_COMMON_P2P) {
 		return 0;
 	}
@@ -2755,6 +2771,8 @@ calc:
 
 int process_pdelay_resp(struct port *p, struct ptp_message *m)
 {
+	update_as2011neighbor_gptp_capable(p, m);
+
 	if (p->delayMechanism == DM_COMMON_P2P) {
 		return 0;
 	}
