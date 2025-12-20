@@ -846,7 +846,18 @@ static int org_post_recv(struct organization_tlv *org)
 			break;
 
 		case 2:
-			if (org->length + sizeof(struct TLV) != sizeof(struct msg_interval_req_tlv))
+			if (org->length + sizeof(struct TLV) < sizeof(struct msg_interval_req_tlv))
+				goto bad_length;
+			break;
+
+		case 4:
+			if (org->length + sizeof(struct TLV) < sizeof(struct gptp_capable_tlv))
+				goto bad_length;
+			break;
+
+		case 5:
+			if (org->length + sizeof(struct TLV) <
+			    sizeof(struct gptp_capable_msg_interval_req_tlv))
 				goto bad_length;
 		}
 	} else if (0 == memcmp(org->id, itu_t_id, sizeof(itu_t_id))) {
@@ -1194,6 +1205,8 @@ int tlv_post_recv(struct tlv_extra *extra)
 		mes->id = ntohs(mes->id);
 		break;
 	case TLV_ORGANIZATION_EXTENSION:
+	case TLV_ORGANIZATION_EXTENSION_PROPAGATE:
+	case TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE:
 		if (TLV_LENGTH_INVALID(tlv, organization_tlv))
 			goto bad_length;
 		result = org_post_recv((struct organization_tlv *) tlv);
@@ -1221,9 +1234,7 @@ int tlv_post_recv(struct tlv_extra *extra)
 	case TLV_PTPMON_RESP:
 		result = nsm_resp_post_recv(extra);
 		break;
-	case TLV_ORGANIZATION_EXTENSION_PROPAGATE:
 	case TLV_ENHANCED_ACCURACY_METRICS:
-	case TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE:
 	case TLV_L1_SYNC:
 	case TLV_PORT_COMMUNICATION_AVAILABILITY:
 	case TLV_PROTOCOL_ADDRESS:

@@ -102,6 +102,26 @@ static int process_interval_request(struct port *p,
 	return 0;
 }
 
+static int process_gptp_capable_interval_request(
+	struct port *p, struct gptp_capable_msg_interval_req_tlv *r)
+{
+	int err;
+
+	if (p->transportSpecific != TS_IEEE_8021AS) {
+		return 0;
+	}
+	p->logGptpCapableMessageInterval =
+		set_interval(p->logGptpCapableMessageInterval,
+			     r->logGptpCapableMessageInterval,
+			     p->initialLogGptpCapableMessageInterval);
+	pr_notice("%s: received logGptpCapableMessageInterval %d",
+		  p->log_name, p->logGptpCapableMessageInterval);
+
+	/* Send one immediate signaling update so subtype 5 is observable in captures. */
+	err = port_tx_gptp_capable(p, p->logGptpCapableMessageInterval);
+	return err;
+}
+
 static int process_interface_rate(struct port *p,
                                  struct msg_interface_rate_tlv *r)
 {
@@ -146,6 +166,7 @@ static int process_gptp_capable_message(struct port *p,
 int process_signaling(struct port *p, struct ptp_message *m)
 {
 	struct tlv_extra *extra;
+	struct gptp_capable_msg_interval_req_tlv *gcir;
 	struct organization_tlv *org;
 	struct msg_interval_req_tlv *r;
 	struct msg_interface_rate_tlv *rate;
@@ -203,6 +224,7 @@ int process_signaling(struct port *p, struct ptp_message *m)
 			break;
 
 		case TLV_ORGANIZATION_EXTENSION:
+		case TLV_ORGANIZATION_EXTENSION_PROPAGATE:
 			org = (struct organization_tlv *)extra->tlv;
 
 			if (0 == memcmp(org->id, ieee8021_id, sizeof(ieee8021_id)) &&
@@ -217,10 +239,15 @@ int process_signaling(struct port *p, struct ptp_message *m)
 			break;
 		case TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE:
 			gc = (struct gptp_capable_tlv *)extra->tlv;
+			org = (struct organization_tlv *)extra->tlv;
 
 			if (0 == memcmp(gc->id, ieee8021_id, sizeof(ieee8021_id)) &&
 			    gc->subtype[0] == 0 && gc->subtype[1] == 0 && gc->subtype[2] == 4) {
 				err = process_gptp_capable_message(p, gc);
+			} else if (0 == memcmp(org->id, ieee8021_id, sizeof(ieee8021_id)) &&
+                                   org->subtype[0] == 0 && org->subtype[1] == 0 && org->subtype[2] == 5) {
+                                gcir = (struct gptp_capable_msg_interval_req_tlv *) extra->tlv;
+                                err = process_gptp_capable_interval_request(p, gcir);
 			}
 			break;
 		}
@@ -273,11 +300,12 @@ out:
 
 int port_tx_gptp_capable(struct port *p, Integer8 msgInterval)
 {
-	struct gptp_capable_tlv *gc;
+	struct gptp_capable_msg_interval_req_tlv *cap_req;
 	struct PortIdentity tpid;
-	struct ptp_message *msg;
+	struct ptp_message *msg, *mir_msg;
+	struct msg_interval_req_tlv *mir;
 	struct tlv_extra *extra;
-	int err;
+	int err, mir_err;
 
 	if (p->transportSpecific != TS_IEEE_8021AS) {
         return 0;
@@ -291,24 +319,53 @@ int port_tx_gptp_capable(struct port *p, Integer8 msgInterval)
 	if (!msg) {
 		return -1;
 	}
-	extra = msg_tlv_append(msg, sizeof(*gc));
+	extra = msg_tlv_append(msg, sizeof(*cap_req));
 	if (!extra) {
-		err = -1;
-		goto out;
-	}
-	gc = (struct gptp_capable_tlv *) extra->tlv;
-	gc->type = TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE;
-	gc->length = sizeof(*gc) - sizeof(gc->type) - sizeof(gc->length);
-	memcpy(gc->id, ieee8021_id, sizeof(ieee8021_id));
-	gc->subtype[2] = 4;
-	gc->gPTPCapableMsgInterval = msgInterval;
-	gc->flags = 0;
+                err = -1;
+                goto out;
+        }
+	cap_req = (struct gptp_capable_msg_interval_req_tlv *)extra->tlv;
+	cap_req->type = TLV_ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE;
+	cap_req->length = sizeof(*cap_req) - sizeof(cap_req->type) - sizeof(cap_req->length);
+	memcpy(cap_req->id, ieee8021_id, sizeof(ieee8021_id));
+	cap_req->subtype[2] = 5;
+	cap_req->logGptpCapableMessageInterval = p->logGptpCapableMessageInterval;
+	cap_req->flags = 0;
+	memset(cap_req->reserved, 0, sizeof(cap_req->reserved));
 
 	err = port_prepare_and_send(p, msg, TRANS_GENERAL);
 	if (err) {
-		pr_err("%s: send gptp_capable signaling failed", p->log_name);
+		pr_err("%s: send gPTP capable signaling failed", p->log_name);
 	}
-	pr_debug("%s: send gptp_capable signaling message", p->log_name);
+	msg_put(msg);
+	/* Also emit a standard Message Interval Request TLV (subtype 2). */
+	mir_msg = port_signaling_construct(p, &tpid);
+	if (!mir_msg) {
+		return err;
+	}
+	extra = msg_tlv_append(mir_msg, sizeof(*mir));
+	if (!extra) {
+		mir_err = -1;
+		goto out_mir;
+	}
+	mir = (struct msg_interval_req_tlv *) extra->tlv;
+	mir->type = TLV_ORGANIZATION_EXTENSION;
+	mir->length = sizeof(*mir) - sizeof(mir->type) - sizeof(mir->length);
+	memcpy(mir->id, ieee8021_id, sizeof(ieee8021_id));
+	mir->subtype[2] = 2;
+	mir->timeSyncInterval = p->logSyncInterval;
+	mir->announceInterval = SIGNAL_NO_CHANGE;
+	mir->linkDelayInterval = SIGNAL_NO_CHANGE;
+	mir->flags = 0;
+
+	mir_err = port_prepare_and_send(p, mir_msg, TRANS_GENERAL);
+	if (mir_err) {
+		pr_err("%s: send message interval request signaling failed", p->log_name);
+	}
+
+out_mir:
+	msg_put(mir_msg);
+	return err ? err : mir_err;
 
 out:
 	msg_put(msg);

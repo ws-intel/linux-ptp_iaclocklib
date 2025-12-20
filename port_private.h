@@ -127,6 +127,7 @@ struct port {
 	Integer8            logMinPdelayReqInterval;
 	Integer8            operLogPdelayReqInterval;
 	Integer8            logPdelayReqInterval;
+	Integer8            initialLogGptpCapableMessageInterval;
 	UInteger32          neighborPropDelayThresh;
 	int                 follow_up_info;
 	int                 freq_est_interval;
@@ -203,6 +204,7 @@ int port_is_enabled(struct port *p);
 void port_link_status(void *ctx, int index, int linkup);
 int port_set_announce_tmo(struct port *p);
 int port_set_delay_tmo(struct port *p);
+int port_set_gptp_capable_tmo(struct port *p);
 int port_set_qualification_tmo(struct port *p);
 int port_set_sync_rx_tmo(struct port *p);
 int port_set_gptp_capable_tx_tmo(struct port *p);
@@ -218,6 +220,7 @@ int port_tx_interval_request(struct port *p,
 			     Integer8 timeSyncInterval,
 			     Integer8 linkDelayInterval);
 int port_tx_gptp_capable(struct port *p, Integer8 msgInterval);
+int port_gptp_capable(struct port *p);
 int port_tx_sync(struct port *p, struct address *dst, uint16_t sequence_id);
 int process_announce(struct port *p, struct ptp_message *m);
 void process_delay_resp(struct port *p, struct ptp_message *m);

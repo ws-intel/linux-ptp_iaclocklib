@@ -404,6 +404,16 @@ struct gptp_capable_tlv {
 	Octet         reserved[4];
 } PACKED;
 
+struct gptp_capable_msg_interval_req_tlv {
+	Enumeration16 type;
+	UInteger16    length;
+	Octet         id[3];
+	Octet         subtype[3];
+	Integer8      logGptpCapableMessageInterval;
+	Octet         flags;
+	Octet         reserved[2];
+} PACKED;
+
 struct time_status_np {
 	int64_t       master_offset; /*nanoseconds*/
 	int64_t       ingress_time;  /*nanoseconds*/
