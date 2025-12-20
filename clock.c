@@ -585,6 +585,11 @@ static int clock_management_fill_response(struct clock *c, struct port *p,
 		mtd->val = c->local_sync_uncertain;
 		datalen = sizeof(*mtd);
 		break;
+	case MID_DRIFT_TRACKING_NP:
+		mtd = (struct management_tlv_datum *) tlv->data;
+		mtd->val = clock_drift_tracking(c);
+		datalen = sizeof(*mtd);
+		break;
 	case MID_EXTERNAL_GRANDMASTER_PROPERTIES_NP:
 		egpn = (struct external_grandmaster_properties_np *) tlv->data;
 		egpn->gmIdentity = c->ext_gm_identity;
@@ -719,6 +724,11 @@ static int clock_management_set(struct clock *c, struct port *p,
 			respond = 1;
 			break;
 		}
+		break;
+	case MID_DRIFT_TRACKING_NP:
+		mtd = (struct management_tlv_datum *) tlv->data;
+		clock_set_drift_tracking(c, mtd->val);
+		respond = 1;
 		break;
 	case MID_EXTERNAL_GRANDMASTER_PROPERTIES_NP:
 		egpn = (struct external_grandmaster_properties_np *) tlv->data;
@@ -1558,6 +1568,12 @@ void clock_follow_up_info(struct clock *c, struct follow_up_info_tlv *f)
 int clock_drift_tracking(struct clock *c)
 {
 	return c->drift_tracking ? 1 : 0;
+}
+
+void clock_set_drift_tracking(struct clock *c, int enable)
+{
+	c->drift_tracking = enable ? 1 : 0;
+	pr_notice("Drift tracking %s", enable ? "enabled" : "disabled");
 }
 
 void clock_drift_tracking_update(struct clock *c, struct drift_tracking_tlv *dt)

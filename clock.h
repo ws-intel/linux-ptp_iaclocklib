@@ -165,6 +165,13 @@ int clock_drift_tracking(struct clock *c);
 void clock_drift_tracking_update(struct clock *c, struct drift_tracking_tlv *dt);
 
 /**
+ * Set the drift tracking support for a clock.
+ * @param c      The clock instance.
+ * @param enable Enable (1) or disable (0) drift tracking.
+ */
+void clock_set_drift_tracking(struct clock *c, int enable);
+
+/**
  * Determine if a clock is free running or not.
  * @param c  The clock instance.
  * @return   One if the clock is free running or zero otherwise.

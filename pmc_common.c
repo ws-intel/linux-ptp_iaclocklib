@@ -133,6 +133,7 @@ struct management_id idtab[] = {
 	{ "TIME_STATUS_NP", MID_TIME_STATUS_NP, do_get_action },
 	{ "GRANDMASTER_SETTINGS_NP", MID_GRANDMASTER_SETTINGS_NP, do_set_action },
 	{ "SUBSCRIBE_EVENTS_NP", MID_SUBSCRIBE_EVENTS_NP, do_set_action },
+	{ "DRIFT_TRACKING_NP", MID_DRIFT_TRACKING_NP, do_set_action },
 	{ "SYNCHRONIZATION_UNCERTAIN_NP", MID_SYNCHRONIZATION_UNCERTAIN_NP, do_set_action },
 	{ "EXTERNAL_GRANDMASTER_PROPERTIES_NP", MID_EXTERNAL_GRANDMASTER_PROPERTIES_NP, do_set_action },
 /* Port management ID values */
@@ -213,6 +214,7 @@ static void do_set_action(struct pmc *pmc, int action, int index, char *str)
 	switch (code) {
 	case MID_PRIORITY1:
 	case MID_PRIORITY2:
+	case MID_DRIFT_TRACKING_NP:
 		cnt = sscanf(str,  " %*s %*s %hhu", &mtd.val);
 		if (cnt != 1) {
 			fprintf(stderr, "%s SET needs 1 value\n",
@@ -734,6 +736,7 @@ static int pmc_tlv_datalen(struct pmc *pmc, int id)
 	case MID_TRACEABILITY_PROPERTIES:
 	case MID_TIMESCALE_PROPERTIES:
 	case MID_MASTER_ONLY:
+	case MID_DRIFT_TRACKING_NP:
 	case MID_SYNCHRONIZATION_UNCERTAIN_NP:
 		len += sizeof(struct management_tlv_datum);
 		break;
