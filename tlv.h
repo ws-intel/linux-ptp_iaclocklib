@@ -434,6 +434,9 @@ struct time_status_np {
 	ScaledNs      lastGmPhaseChange;
 	Integer32     gmPresent;
 	struct ClockIdentity gmIdentity;
+	struct ClockIdentity syncGrandmasterIdentity;
+	UInteger16    syncStepsRemoved;
+	Integer32     rateRatioDrift;
 } PACKED;
 
 struct grandmaster_settings_np {
